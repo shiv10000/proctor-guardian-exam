@@ -46,7 +46,19 @@ class ProctorService {
       
       // Set the video source to the webcam stream
       this.videoElement.srcObject = stream;
-      await this.videoElement.play();
+      
+      // Ensure the video is visible by playing it explicitly
+      this.videoElement.style.display = 'block';
+      await this.videoElement.play().catch(e => {
+        console.error('Video play failed:', e);
+        // Try again with autoplay after user interaction
+        const playPromise = this.videoElement?.play();
+        if (playPromise) {
+          playPromise.catch(() => {
+            console.log('Waiting for user interaction to enable video');
+          });
+        }
+      });
       
       // Add event listeners for tab switching and minimizing
       document.addEventListener('visibilitychange', this.visibilityChangeHandler);

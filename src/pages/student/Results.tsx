@@ -10,6 +10,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { AlertTriangle, BadgeAlert } from "lucide-react";
 import examService, { Exam, ExamResult } from "@/services/ExamService";
 
 const Results = () => {
@@ -75,15 +76,16 @@ const Results = () => {
                         {result.score} / {result.totalQuestions} ({((result.score / result.totalQuestions) * 100).toFixed(1)}%)
                       </TableCell>
                       <TableCell>
-                        <span 
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            result.status === 'completed' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {result.status === 'completed' ? 'Completed' : 'Failed'}
-                        </span>
+                        {result.status === 'completed' ? (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Completed
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 flex items-center gap-1">
+                            <AlertTriangle size={12} />
+                            <span>Failed - Cheating</span>
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>{new Date(result.endTime).toLocaleDateString()}</TableCell>
                       <TableCell className="text-right">
@@ -130,7 +132,7 @@ const Results = () => {
                 </div>
                 
                 {/* Status info */}
-                <div className="p-4 rounded-md border">
+                <div className={`p-4 rounded-md border ${selectedResult.status === 'failed' ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
                   <h3 className="text-lg font-medium mb-2">Exam Status</h3>
                   {selectedResult.status === 'completed' ? (
                     <div className="text-green-600">
@@ -138,14 +140,22 @@ const Results = () => {
                     </div>
                   ) : (
                     <div className="text-red-600">
-                      <p>This exam was failed due to detected violations.</p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <BadgeAlert className="h-5 w-5" />
+                        <h4 className="font-medium text-base">EXAM FAILED DUE TO CHEATING</h4>
+                      </div>
                       {selectedResult.violations.length > 0 && (
-                        <div className="mt-2">
-                          <h4 className="font-medium">Violations:</h4>
-                          <ul className="list-disc list-inside mt-1">
+                        <div className="mt-2 bg-white p-4 rounded border border-red-200">
+                          <h4 className="font-medium">Cheating Violations Detected:</h4>
+                          <ul className="list-disc list-inside mt-2 space-y-1">
                             {selectedResult.violations.map((violation, index) => (
-                              <li key={index}>
+                              <li key={index} className="text-red-800">
                                 {formatViolationType(violation.type)} at {new Date(violation.timestamp).toLocaleTimeString()}
+                                {violation.details && (
+                                  <span className="text-gray-600 text-sm block ml-5">
+                                    {violation.details}
+                                  </span>
+                                )}
                               </li>
                             ))}
                           </ul>
