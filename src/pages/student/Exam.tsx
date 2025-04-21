@@ -9,7 +9,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
-import examService, { Exam, Question } from "@/services/ExamService";
+import examService from "@/services/ExamService";
+import type { Exam as ExamType, Question } from "@/services/ExamService";
 import proctorService, { ViolationEvent } from "@/services/ProctorService";
 
 const formatTime = (seconds: number): string => {
@@ -23,7 +24,7 @@ const Exam = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   
-  const [exam, setExam] = useState<Exam | null>(null);
+  const [exam, setExam] = useState<ExamType | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<{ [questionId: string]: string }>({});
   const [remainingTime, setRemainingTime] = useState(0);
