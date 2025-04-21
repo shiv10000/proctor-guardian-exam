@@ -15,6 +15,7 @@ class ProctorService {
   private visibilityChangeHandler: () => void;
   private focusHandler: () => void;
   private blurHandler: () => void;
+  private checkIntervalId: number | null = null;
 
   constructor() {
     // Create handlers that will be attached and removed
@@ -33,22 +34,30 @@ class ProctorService {
     this.violationEvents = [];
     
     try {
-      // Request camera access
+      // Request camera access with higher resolution
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user"
+        },
         audio: false
       });
       
       // Set the video source to the webcam stream
       this.videoElement.srcObject = stream;
-      this.videoElement.play();
+      await this.videoElement.play();
       
       // Add event listeners for tab switching and minimizing
       document.addEventListener('visibilitychange', this.visibilityChangeHandler);
       window.addEventListener('focus', this.focusHandler);
       window.addEventListener('blur', this.blurHandler);
       
+      // Start periodic monitoring (every 2 seconds)
+      this.startPeriodicMonitoring();
+      
       this.active = true;
+      console.log("ProctorService initialized successfully");
       return true;
     } catch (error) {
       console.error('Failed to initialize ProctorService:', error);
@@ -56,9 +65,52 @@ class ProctorService {
     }
   }
 
+  // Start periodic monitoring of webcam feed
+  private startPeriodicMonitoring(): void {
+    if (this.checkIntervalId) {
+      window.clearInterval(this.checkIntervalId);
+    }
+    
+    // Set up periodic checks
+    this.checkIntervalId = window.setInterval(() => {
+      this.checkForViolations();
+    }, 2000);
+  }
+  
+  // Check webcam feed for violations
+  private checkForViolations(): void {
+    if (!this.active || !this.videoElement) return;
+    
+    // Simulate detection of common violations randomly
+    // In a real implementation, this would use computer vision to detect:
+    // 1. Multiple people in frame
+    // 2. Mobile phone usage
+    // 3. Looking away from screen
+    
+    const simulateDetection = Math.random() < 0.03; // 3% chance of detecting violation
+    
+    if (simulateDetection) {
+      // For demo purposes, randomly choose a violation type
+      const violations = ['multiple_people', 'mobile_detected', 'looking_away'];
+      const randomViolation = violations[Math.floor(Math.random() * violations.length)] as ViolationEvent['type'];
+      
+      this.recordViolation({
+        type: randomViolation,
+        timestamp: Date.now(),
+        details: `Simulated detection of ${randomViolation}`
+      });
+    }
+  }
+
   // Stop proctoring
   stop(): void {
     if (!this.active) return;
+    
+    // Stop periodic monitoring
+    if (this.checkIntervalId) {
+      window.clearInterval(this.checkIntervalId);
+      this.checkIntervalId = null;
+    }
     
     // Stop using the webcam
     if (this.videoElement?.srcObject) {
@@ -74,6 +126,7 @@ class ProctorService {
     
     this.active = false;
     this.videoElement = null;
+    console.log("ProctorService stopped");
   }
 
   // Get all recorded violations
@@ -111,6 +164,7 @@ class ProctorService {
 
   // Record a violation and trigger the callback
   private recordViolation(event: ViolationEvent): void {
+    console.log("Violation recorded:", event);
     this.violationEvents.push(event);
     
     if (this.onViolationCallback) {

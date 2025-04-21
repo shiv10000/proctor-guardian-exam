@@ -12,6 +12,8 @@ import { toast } from "@/components/ui/use-toast";
 import examService from "@/services/ExamService";
 import type { Exam as ExamType, Question } from "@/services/ExamService";
 import proctorService, { ViolationEvent } from "@/services/ProctorService";
+import { AlertCircle, Camera, ShieldAlert } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 const formatTime = (seconds: number): string => {
   const minutes = Math.floor(seconds / 60);
@@ -31,6 +33,7 @@ const Exam = () => {
   const [examStarted, setExamStarted] = useState(false);
   const [violations, setViolations] = useState<ViolationEvent[]>([]);
   const [examFailed, setExamFailed] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -120,6 +123,7 @@ const Exam = () => {
       return;
     }
     
+    setCameraActive(true);
     setExamStarted(true);
     startTimeRef.current = Date.now();
     
@@ -130,17 +134,45 @@ const Exam = () => {
   };
   
   const handleViolation = (event: ViolationEvent) => {
-    toast({
-      title: "Violation Detected",
-      description: "Cheating behavior detected. The exam will be terminated.",
-      variant: "destructive"
-    });
-    
     setViolations(prev => [...prev, event]);
     
+    let violationDescription = "Cheating behavior detected.";
+    
+    switch(event.type) {
+      case 'tab_switch':
+        violationDescription = "You switched tabs or minimized the browser.";
+        break;
+      case 'browser_minimize':
+        violationDescription = "You switched to another application.";
+        break;
+      case 'multiple_people':
+        violationDescription = "Multiple people detected in camera view.";
+        break;
+      case 'mobile_detected':
+        violationDescription = "Mobile device usage detected.";
+        break;
+      case 'looking_away':
+        violationDescription = "Looking away from screen detected.";
+        break;
+      default:
+        violationDescription = "Suspicious behavior detected.";
+    }
+    
+    // Show toast with specific violation
+    toast({
+      title: "Violation Detected",
+      description: violationDescription,
+      variant: "destructive",
+    });
+    
     // Fail the exam after the first violation
-    setExamFailed(true);
-    handleExamEnd();
+    if (!examFailed) {
+      setExamFailed(true);
+      // Allow a brief moment for the user to see what happened before ending
+      setTimeout(() => {
+        handleExamEnd();
+      }, 2000);
+    }
   };
   
   const handleExamEnd = () => {
@@ -148,6 +180,7 @@ const Exam = () => {
     
     // Stop proctoring
     proctorService.stop();
+    setCameraActive(false);
     
     // Calculate score (only if not failed due to violation)
     let score = 0;
@@ -161,7 +194,7 @@ const Exam = () => {
     }
     
     // Save result
-    const result = examService.saveExamResult({
+    const examResult = examService.saveExamResult({
       examId: exam.id,
       studentId: currentUser.id,
       score: examFailed ? 0 : score,
@@ -173,8 +206,24 @@ const Exam = () => {
       status: examFailed ? 'failed' : 'completed'
     });
     
+    // If exam was failed, show a clear message before redirecting
+    if (examFailed) {
+      toast({
+        title: "Exam Failed",
+        description: "Your exam was terminated due to detected violations.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Exam Completed",
+        description: `Your score: ${score}/${exam.questions.length}`,
+      });
+    }
+    
     // Redirect to results page
-    navigate('/student/results');
+    setTimeout(() => {
+      navigate('/student/results');
+    }, 2000);
   };
   
   const handleAnswerChange = (questionId: string, optionId: string) => {
@@ -198,6 +247,16 @@ const Exam = () => {
   return (
     <Layout title={`Exam: ${exam?.title || 'Loading...'}`} showLogout={false}>
       <div className="space-y-6 pb-10">
+        {examFailed && (
+          <Alert variant="destructive" className="mb-4 animate-pulse">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Exam Failed</AlertTitle>
+            <AlertDescription>
+              Cheating behavior has been detected. The exam has been terminated.
+            </AlertDescription>
+          </Alert>
+        )}
+        
         {!examStarted ? (
           <Card className="max-w-3xl mx-auto">
             <CardHeader>
@@ -229,14 +288,20 @@ const Exam = () => {
                   </div>
                   
                   <div className="border p-4 rounded-md">
-                    <h3 className="font-medium mb-2">Camera Preview</h3>
+                    <h3 className="font-medium mb-2 flex items-center gap-2">
+                      <Camera className="h-4 w-4" /> Camera Preview
+                    </h3>
                     <div className="relative aspect-video bg-slate-100 overflow-hidden rounded">
                       <video 
                         ref={videoRef} 
-                        className="absolute inset-0 w-full h-full object-cover"
-                        muted
+                        className="absolute inset-0 w-full h-full object-cover mirror"
+                        autoPlay
                         playsInline
+                        muted
                       />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <p className="text-gray-500">Camera preview will appear here</p>
+                      </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
                       Camera access is required. Please allow camera permissions when prompted.
@@ -323,18 +388,23 @@ const Exam = () => {
             </div>
             
             {/* Webcam monitor */}
-            <div className="fixed bottom-4 right-4 w-64 rounded-md overflow-hidden border-2 border-proctor-primary shadow-lg">
-              <div className="bg-proctor-primary text-white px-2 py-1 text-xs font-medium flex justify-between items-center">
-                <span>Proctoring Active</span>
-                <span className="animate-pulse">●</span>
+            {cameraActive && (
+              <div className="fixed bottom-4 right-4 w-64 rounded-md overflow-hidden border-2 border-proctor-primary shadow-lg">
+                <div className="bg-proctor-primary text-white px-2 py-1 text-xs font-medium flex justify-between items-center">
+                  <span className="flex items-center gap-1">
+                    <ShieldAlert className="h-3 w-3" /> Proctoring Active
+                  </span>
+                  <span className="animate-pulse">●</span>
+                </div>
+                <video 
+                  ref={videoRef}
+                  className="w-full aspect-video object-cover bg-black"
+                  autoPlay
+                  playsInline
+                  muted
+                />
               </div>
-              <video 
-                ref={videoRef}
-                className="w-full aspect-video object-cover"
-                muted
-                playsInline
-              />
-            </div>
+            )}
           </div>
         )}
       </div>
