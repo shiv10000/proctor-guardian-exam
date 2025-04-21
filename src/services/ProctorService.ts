@@ -44,21 +44,30 @@ class ProctorService {
         audio: false
       });
       
+      if (!this.videoElement) {
+        console.error('Video element is no longer available');
+        return false;
+      }
+      
       // Set the video source to the webcam stream
       this.videoElement.srcObject = stream;
       
-      // Ensure the video is visible by playing it explicitly
+      // Make sure video element is visible and properly styled
       this.videoElement.style.display = 'block';
-      await this.videoElement.play().catch(e => {
+      this.videoElement.style.width = '100%';
+      this.videoElement.style.height = '100%';
+      this.videoElement.style.objectFit = 'cover';
+      
+      // Play the video with better error handling
+      try {
+        await this.videoElement.play();
+        console.log("Camera initialized successfully");
+      } catch (e) {
         console.error('Video play failed:', e);
-        // Try again with autoplay after user interaction
-        const playPromise = this.videoElement?.play();
-        if (playPromise) {
-          playPromise.catch(() => {
-            console.log('Waiting for user interaction to enable video');
-          });
-        }
-      });
+        // Video might need user interaction first, set up event listeners
+        document.addEventListener('click', this.tryPlayVideo.bind(this), { once: true });
+        document.addEventListener('keydown', this.tryPlayVideo.bind(this), { once: true });
+      }
       
       // Add event listeners for tab switching and minimizing
       document.addEventListener('visibilitychange', this.visibilityChangeHandler);
@@ -74,6 +83,15 @@ class ProctorService {
     } catch (error) {
       console.error('Failed to initialize ProctorService:', error);
       return false;
+    }
+  }
+  
+  // Try to play video after user interaction
+  private tryPlayVideo(): void {
+    if (this.videoElement && this.videoElement.paused) {
+      this.videoElement.play().catch(err => {
+        console.error('Failed to play video after user interaction:', err);
+      });
     }
   }
 
@@ -135,6 +153,8 @@ class ProctorService {
     document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
     window.removeEventListener('focus', this.focusHandler);
     window.removeEventListener('blur', this.blurHandler);
+    document.removeEventListener('click', this.tryPlayVideo.bind(this));
+    document.removeEventListener('keydown', this.tryPlayVideo.bind(this));
     
     this.active = false;
     this.videoElement = null;
