@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -294,13 +293,14 @@ const Exam = () => {
                     <div className="relative aspect-video bg-slate-100 overflow-hidden rounded">
                       <video 
                         ref={videoRef} 
-                        className="absolute inset-0 w-full h-full object-cover mirror"
+                        className="absolute inset-0 w-full h-full object-cover"
                         autoPlay
                         playsInline
                         muted
+                        style={{ transform: 'scaleX(-1)' }} // Mirror effect
                       />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <p className="text-gray-500">Camera preview will appear here</p>
+                        <p className="text-gray-500 bg-gray-100/80 px-2 py-1 rounded">Camera preview will appear here</p>
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
@@ -402,6 +402,7 @@ const Exam = () => {
                   autoPlay
                   playsInline
                   muted
+                  style={{ transform: 'scaleX(-1)' }} // Mirror effect
                 />
               </div>
             )}

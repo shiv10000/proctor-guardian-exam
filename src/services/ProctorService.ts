@@ -16,6 +16,7 @@ class ProctorService {
   private focusHandler: () => void;
   private blurHandler: () => void;
   private checkIntervalId: number | null = null;
+  private mediaStream: MediaStream | null = null;
 
   constructor() {
     // Create handlers that will be attached and removed
@@ -34,6 +35,8 @@ class ProctorService {
     this.violationEvents = [];
     
     try {
+      console.log("Requesting camera access...");
+      
       // Request camera access with higher resolution
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -44,13 +47,24 @@ class ProctorService {
         audio: false
       });
       
-      // Set the video source to the webcam stream
-      this.videoElement.srcObject = stream;
+      // Store the media stream for later cleanup
+      this.mediaStream = stream;
       
-      // Make sure to set attributes to help with playback
+      console.log("Camera access granted, setting up video element");
+      
+      // Clear any previous source
+      if (this.videoElement.srcObject) {
+        this.videoElement.srcObject = null;
+      }
+      
+      // Make sure video element is properly set up
       this.videoElement.muted = true;
       this.videoElement.playsInline = true;
       this.videoElement.autoplay = true;
+      this.videoElement.style.transform = 'scaleX(-1)'; // Mirror effect
+      
+      // Set the video source to the webcam stream
+      this.videoElement.srcObject = stream;
       
       // Ensure the video is displayed by properly handling the play promise
       try {
@@ -60,7 +74,19 @@ class ProctorService {
         console.error("Error playing video:", playError);
         // Try again with user interaction or wait a moment
         setTimeout(() => {
-          this.videoElement?.play().catch(e => console.error("Retry play failed:", e));
+          if (this.videoElement) {
+            console.log("Retrying video playback...");
+            this.videoElement.play().catch(e => {
+              console.error("Retry play failed:", e);
+              // One more attempt after a longer delay
+              setTimeout(() => {
+                if (this.videoElement && this.mediaStream) {
+                  this.videoElement.srcObject = this.mediaStream;
+                  this.videoElement.play().catch(e => console.error("Final retry failed:", e));
+                }
+              }, 2000);
+            });
+          }
         }, 1000);
       }
       
@@ -100,7 +126,19 @@ class ProctorService {
     // Verify video is actually playing
     if (this.videoElement.paused || this.videoElement.ended) {
       console.log("Video is paused or ended, attempting to restart");
-      this.videoElement.play().catch(e => console.warn("Could not restart video:", e));
+      this.videoElement.play().catch(e => {
+        console.warn("Could not restart video:", e);
+        // If we can't restart, try resetting the source
+        if (this.mediaStream) {
+          this.videoElement!.srcObject = null;
+          setTimeout(() => {
+            if (this.videoElement && this.mediaStream) {
+              this.videoElement.srcObject = this.mediaStream;
+              this.videoElement.play().catch(e => console.error("Reset source failed:", e));
+            }
+          }, 500);
+        }
+      });
     }
     
     // Simulate detection of common violations randomly
@@ -135,9 +173,12 @@ class ProctorService {
     }
     
     // Stop using the webcam
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => track.stop());
+      this.mediaStream = null;
+    }
+    
     if (this.videoElement?.srcObject) {
-      const tracks = (this.videoElement.srcObject as MediaStream).getTracks();
-      tracks.forEach(track => track.stop());
       this.videoElement.srcObject = null;
     }
     
