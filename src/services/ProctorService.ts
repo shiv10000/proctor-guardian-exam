@@ -46,7 +46,23 @@ class ProctorService {
       
       // Set the video source to the webcam stream
       this.videoElement.srcObject = stream;
-      await this.videoElement.play();
+      
+      // Make sure to set attributes to help with playback
+      this.videoElement.muted = true;
+      this.videoElement.playsInline = true;
+      this.videoElement.autoplay = true;
+      
+      // Ensure the video is displayed by properly handling the play promise
+      try {
+        await this.videoElement.play();
+        console.log("Camera video playback started successfully");
+      } catch (playError) {
+        console.error("Error playing video:", playError);
+        // Try again with user interaction or wait a moment
+        setTimeout(() => {
+          this.videoElement?.play().catch(e => console.error("Retry play failed:", e));
+        }, 1000);
+      }
       
       // Add event listeners for tab switching and minimizing
       document.addEventListener('visibilitychange', this.visibilityChangeHandler);
@@ -80,6 +96,12 @@ class ProctorService {
   // Check webcam feed for violations
   private checkForViolations(): void {
     if (!this.active || !this.videoElement) return;
+    
+    // Verify video is actually playing
+    if (this.videoElement.paused || this.videoElement.ended) {
+      console.log("Video is paused or ended, attempting to restart");
+      this.videoElement.play().catch(e => console.warn("Could not restart video:", e));
+    }
     
     // Simulate detection of common violations randomly
     // In a real implementation, this would use computer vision to detect:
