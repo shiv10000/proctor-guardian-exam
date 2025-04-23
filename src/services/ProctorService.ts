@@ -37,11 +37,14 @@ class ProctorService {
     try {
       console.log("Requesting camera access...");
       
-      // Request camera access with higher resolution
+      // First clean up any existing stream
+      this.cleanupExistingStream();
+      
+      // Request camera access with lower resolution first to ensure compatibility
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 640 },  // Lower initial resolution for better compatibility
+          height: { ideal: 480 },
           facingMode: "user"
         },
         audio: false
@@ -52,19 +55,39 @@ class ProctorService {
       
       console.log("Camera access granted, setting up video element");
       
+      // Debug: Check if we have video tracks
+      const videoTracks = stream.getVideoTracks();
+      console.log(`Got ${videoTracks.length} video tracks`);
+      if (videoTracks.length > 0) {
+        console.log("Video track settings:", videoTracks[0].getSettings());
+      }
+      
       // Clear any previous source
       if (this.videoElement.srcObject) {
         this.videoElement.srcObject = null;
       }
       
-      // Make sure video element is properly set up
-      this.videoElement.muted = true;
-      this.videoElement.playsInline = true;
-      this.videoElement.autoplay = true;
+      // Make sure video element is properly set up with EXPLICIT attributes
+      this.videoElement.setAttribute('autoplay', 'true');
+      this.videoElement.setAttribute('playsinline', 'true');
+      this.videoElement.setAttribute('muted', 'true');
       this.videoElement.style.transform = 'scaleX(-1)'; // Mirror effect
+      
+      // Ensure video visibility with explicit styling
+      this.videoElement.style.display = 'block';
+      this.videoElement.style.width = '100%';
+      this.videoElement.style.height = 'auto';
+      this.videoElement.style.backgroundColor = '#000'; // Makes it obvious if video element is showing
+      this.videoElement.style.objectFit = 'cover'; // Ensure video fills the element
       
       // Set the video source to the webcam stream
       this.videoElement.srcObject = stream;
+      
+      // Force a layout recalculation
+      void this.videoElement.offsetHeight;
+      
+      // Add debugging event listeners
+      this.addVideoDebugListeners();
       
       // Ensure the video is displayed by properly handling the play promise
       try {
@@ -72,22 +95,9 @@ class ProctorService {
         console.log("Camera video playback started successfully");
       } catch (playError) {
         console.error("Error playing video:", playError);
-        // Try again with user interaction or wait a moment
-        setTimeout(() => {
-          if (this.videoElement) {
-            console.log("Retrying video playback...");
-            this.videoElement.play().catch(e => {
-              console.error("Retry play failed:", e);
-              // One more attempt after a longer delay
-              setTimeout(() => {
-                if (this.videoElement && this.mediaStream) {
-                  this.videoElement.srcObject = this.mediaStream;
-                  this.videoElement.play().catch(e => console.error("Final retry failed:", e));
-                }
-              }, 2000);
-            });
-          }
-        }, 1000);
+        // Try with a timeout to let the browser stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        this.reinitializeVideo();
       }
       
       // Add event listeners for tab switching and minimizing
@@ -103,7 +113,167 @@ class ProctorService {
       return true;
     } catch (error) {
       console.error('Failed to initialize ProctorService:', error);
+      // Try with lowest possible constraints as a fallback
+      return this.initializeWithFallback();
+    }
+  }
+
+  // Add debug event listeners to video element
+  private addVideoDebugListeners(): void {
+    if (!this.videoElement) return;
+    
+    this.videoElement.addEventListener('loadedmetadata', () => {
+      console.log(`Video dimensions: ${this.videoElement?.videoWidth}x${this.videoElement?.videoHeight}`);
+    });
+    
+    this.videoElement.addEventListener('playing', () => {
+      console.log("Video is now playing");
+    });
+    
+    this.videoElement.addEventListener('canplay', () => {
+      console.log("Video can play");
+    });
+    
+    this.videoElement.addEventListener('error', (e) => {
+      console.error("Video error:", e);
+    });
+  }
+
+  // Fallback initialization with minimal constraints
+  private async initializeWithFallback(): Promise<boolean> {
+    if (!this.videoElement) return false;
+    
+    try {
+      console.log("Attempting fallback camera initialization...");
+      
+      // Clean up first
+      this.cleanupExistingStream();
+      
+      // Try with minimal constraints
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,  // Just request any video
+        audio: false
+      });
+      
+      this.mediaStream = stream;
+      
+      // Set up video element with explicit attributes
+      this.videoElement.autoplay = true;
+      this.videoElement.playsInline = true;
+      this.videoElement.muted = true;
+      this.videoElement.style.transform = 'scaleX(-1)';
+      
+      // Ensure visibility
+      this.videoElement.style.display = 'block';
+      this.videoElement.style.width = '100%';
+      this.videoElement.style.height = 'auto';
+      this.videoElement.style.backgroundColor = '#000';
+      this.videoElement.style.objectFit = 'cover';
+      
+      this.videoElement.srcObject = stream;
+      
+      await this.videoElement.play();
+      
+      document.addEventListener('visibilitychange', this.visibilityChangeHandler);
+      window.addEventListener('focus', this.focusHandler);
+      window.addEventListener('blur', this.blurHandler);
+      
+      this.startPeriodicMonitoring();
+      
+      this.active = true;
+      console.log("ProctorService fallback initialization successful");
+      return true;
+    } catch (error) {
+      console.error("Fallback initialization failed:", error);
       return false;
+    }
+  }
+
+  // Clean up existing stream
+  private cleanupExistingStream(): void {
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => {
+        track.stop();
+        console.log("Stopped existing track");
+      });
+      this.mediaStream = null;
+    }
+    
+    if (this.videoElement?.srcObject) {
+      this.videoElement.srcObject = null;
+      console.log("Cleared existing srcObject");
+    }
+  }
+
+  // Helper method to reinitialize video when there are issues
+  private reinitializeVideo(): void {
+    if (!this.videoElement || !this.mediaStream) return;
+    
+    console.log("Reinitializing video element");
+    
+    // Try forcing video tracks to be enabled
+    const videoTracks = this.mediaStream.getVideoTracks();
+    if (videoTracks.length > 0) {
+      videoTracks.forEach(track => {
+        if (!track.enabled) {
+          track.enabled = true;
+          console.log("Re-enabled video track");
+        }
+      });
+    } else {
+      console.warn("No video tracks found in stream!");
+    }
+    
+    // Reset the stream with a small delay
+    setTimeout(() => {
+      if (this.videoElement && this.mediaStream) {
+        // Reset the stream
+        this.videoElement.srcObject = null;
+        this.videoElement.srcObject = this.mediaStream;
+        
+        // Force a layout recalculation
+        void this.videoElement.offsetHeight;
+        
+        // Try playing again
+        this.videoElement.play().catch(e => {
+          console.error("Retry play failed:", e);
+          // As a last resort, completely restart the stream
+          setTimeout(() => this.restartStream(), 1000);
+        });
+      }
+    }, 500);
+  }
+
+  // Completely restart the media stream if all else fails
+  private async restartStream(): Promise<void> {
+    if (!this.videoElement) return;
+    
+    console.log("Completely restarting media stream");
+    
+    // Clean up old stream
+    this.cleanupExistingStream();
+    
+    try {
+      // Request a new stream with minimal constraints
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
+      
+      this.mediaStream = newStream;
+      this.videoElement.srcObject = newStream;
+      
+      // Log track information
+      const videoTracks = newStream.getVideoTracks();
+      console.log(`Got ${videoTracks.length} video tracks in restarted stream`);
+      if (videoTracks.length > 0) {
+        console.log("Video track settings:", videoTracks[0].getSettings());
+      }
+      
+      await this.videoElement.play();
+      console.log("Stream completely restarted");
+    } catch (error) {
+      console.error("Failed to restart stream:", error);
     }
   }
 
@@ -116,30 +286,58 @@ class ProctorService {
     // Set up periodic checks
     this.checkIntervalId = window.setInterval(() => {
       this.checkForViolations();
+      this.checkVideoStatus(); // Add video health check
     }, 2000);
+  }
+  
+  // Check if video is displaying properly
+  private checkVideoStatus(): void {
+    if (!this.active || !this.videoElement || !this.mediaStream) return;
+    
+    const videoTracks = this.mediaStream.getVideoTracks();
+    
+    // Debug track status
+    if (videoTracks.length > 0) {
+      console.log("Video track status:", {
+        enabled: videoTracks[0].enabled,
+        muted: videoTracks[0].muted,
+        readyState: videoTracks[0].readyState
+      });
+    }
+    
+    // Check if video tracks exist and are active
+    if (videoTracks.length === 0 || !videoTracks[0].enabled) {
+      console.warn("Video track not active, attempting to fix");
+      
+      if (videoTracks.length > 0) {
+        videoTracks[0].enabled = true;
+      } else {
+        // No tracks found, need to restart stream
+        this.restartStream();
+        return;
+      }
+    }
+    
+    // Check if video is actually displaying frames
+    if (this.videoElement.videoWidth === 0 || this.videoElement.videoHeight === 0) {
+      console.warn("Video dimensions are zero, attempting to fix");
+      this.reinitializeVideo();
+      return;
+    }
+    
+    // Verify video is playing
+    if (this.videoElement.paused || this.videoElement.ended) {
+      console.warn("Video is paused or ended, attempting to restart");
+      this.videoElement.play().catch(e => {
+        console.warn("Could not restart video:", e);
+        this.reinitializeVideo();
+      });
+    }
   }
   
   // Check webcam feed for violations
   private checkForViolations(): void {
     if (!this.active || !this.videoElement) return;
-    
-    // Verify video is actually playing
-    if (this.videoElement.paused || this.videoElement.ended) {
-      console.log("Video is paused or ended, attempting to restart");
-      this.videoElement.play().catch(e => {
-        console.warn("Could not restart video:", e);
-        // If we can't restart, try resetting the source
-        if (this.mediaStream) {
-          this.videoElement!.srcObject = null;
-          setTimeout(() => {
-            if (this.videoElement && this.mediaStream) {
-              this.videoElement.srcObject = this.mediaStream;
-              this.videoElement.play().catch(e => console.error("Reset source failed:", e));
-            }
-          }, 500);
-        }
-      });
-    }
     
     // Simulate detection of common violations randomly
     // In a real implementation, this would use computer vision to detect:
@@ -172,20 +370,13 @@ class ProctorService {
       this.checkIntervalId = null;
     }
     
-    // Stop using the webcam
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
-    }
-    
-    if (this.videoElement?.srcObject) {
-      this.videoElement.srcObject = null;
-    }
-    
     // Remove event listeners
     document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
     window.removeEventListener('focus', this.focusHandler);
     window.removeEventListener('blur', this.blurHandler);
+    
+    // Stop using the webcam
+    this.cleanupExistingStream();
     
     this.active = false;
     this.videoElement = null;
