@@ -37,7 +37,6 @@ const Exam = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const startTimeRef = useRef<number | null>(null);
   
-  // Load exam data
   useEffect(() => {
     if (examId) {
       const loadedExam = examService.getExamById(examId);
@@ -57,7 +56,41 @@ const Exam = () => {
     }
   }, [examId, navigate]);
   
-  // Check if already taken
+  useEffect(() => {
+    const setupCameraPreview = async () => {
+      if (!videoRef.current) return;
+      
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user"
+          },
+          audio: false
+        });
+        
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.style.transform = 'scaleX(-1)';
+        
+        await videoRef.current.play();
+        console.log("Camera preview initialized");
+        
+        return () => {
+          stream.getTracks().forEach(track => track.stop());
+        };
+      } catch (err) {
+        console.error("Error in camera preview:", err);
+      }
+    };
+    
+    if (!examStarted) {
+      setupCameraPreview();
+    }
+  }, [examStarted]);
+  
   useEffect(() => {
     if (currentUser && exam) {
       const alreadyTaken = examService.hasStudentTakenExam(currentUser.id, exam.id);
@@ -73,7 +106,6 @@ const Exam = () => {
     }
   }, [currentUser, exam, navigate]);
   
-  // Handle time countdown
   useEffect(() => {
     if (!examStarted || remainingTime <= 0 || examFailed) return;
     
@@ -91,7 +123,6 @@ const Exam = () => {
     return () => clearInterval(timer);
   }, [examStarted, remainingTime, examFailed]);
   
-  // Cleanup proctor service on unmount
   useEffect(() => {
     return () => {
       proctorService.stop();
@@ -106,6 +137,12 @@ const Exam = () => {
         variant: "destructive"
       });
       return;
+    }
+    
+    if (videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
     }
     
     const proctorInitialized = await proctorService.initialize(
@@ -157,17 +194,14 @@ const Exam = () => {
         violationDescription = "Suspicious behavior detected.";
     }
     
-    // Show toast with specific violation
     toast({
       title: "Violation Detected",
       description: violationDescription,
       variant: "destructive",
     });
     
-    // Fail the exam after the first violation
     if (!examFailed) {
       setExamFailed(true);
-      // Allow a brief moment for the user to see what happened before ending
       setTimeout(() => {
         handleExamEnd();
       }, 2000);
@@ -177,14 +211,11 @@ const Exam = () => {
   const handleExamEnd = () => {
     if (!currentUser || !exam) return;
     
-    // Stop proctoring
     proctorService.stop();
     setCameraActive(false);
     
-    // Calculate score (only if not failed due to violation)
     let score = 0;
     if (!examFailed) {
-      // Count correct answers
       exam.questions.forEach(question => {
         if (answers[question.id] === question.correctOptionId) {
           score++;
@@ -192,7 +223,6 @@ const Exam = () => {
       });
     }
     
-    // Save result
     const examResult = examService.saveExamResult({
       examId: exam.id,
       studentId: currentUser.id,
@@ -205,7 +235,6 @@ const Exam = () => {
       status: examFailed ? 'failed' : 'completed'
     });
     
-    // If exam was failed, show a clear message before redirecting
     if (examFailed) {
       toast({
         title: "Exam Failed",
@@ -219,7 +248,6 @@ const Exam = () => {
       });
     }
     
-    // Redirect to results page
     setTimeout(() => {
       navigate('/student/results');
     }, 2000);
@@ -297,11 +325,8 @@ const Exam = () => {
                         autoPlay
                         playsInline
                         muted
-                        style={{ transform: 'scaleX(-1)' }} // Mirror effect
+                        style={{ transform: 'scaleX(-1)' }}
                       />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <p className="text-gray-500 bg-gray-100/80 px-2 py-1 rounded">Camera preview will appear here</p>
-                      </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
                       Camera access is required. Please allow camera permissions when prompted.
@@ -402,7 +427,7 @@ const Exam = () => {
                   autoPlay
                   playsInline
                   muted
-                  style={{ transform: 'scaleX(-1)' }} // Mirror effect
+                  style={{ transform: 'scaleX(-1)' }}
                 />
               </div>
             )}

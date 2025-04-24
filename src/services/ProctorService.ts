@@ -1,3 +1,4 @@
+
 // This service manages the proctoring functionality
 
 export interface ViolationEvent {
@@ -158,6 +159,7 @@ class ProctorService {
     
     try {
       await this.videoElement.play();
+      console.log("Video play successful after reinitialization");
     } catch (e) {
       console.error("Retry play failed:", e);
       await this.restartStream();
@@ -206,7 +208,6 @@ class ProctorService {
     const videoTracks = this.mediaStream.getVideoTracks();
     console.log("Video track status:", {
       enabled: videoTracks[0]?.enabled,
-      muted: videoTracks[0]?.muted,
       readyState: videoTracks[0]?.readyState
     });
     
@@ -216,6 +217,12 @@ class ProctorService {
         console.warn("Could not restart video:", e);
         this.reinitializeVideo();
       });
+    }
+    
+    // Check if camera actually has content
+    if (this.videoElement.videoWidth === 0 || this.videoElement.videoHeight === 0) {
+      console.warn("Video dimensions are zero, attempting to fix");
+      this.reinitializeVideo();
     }
   }
 
