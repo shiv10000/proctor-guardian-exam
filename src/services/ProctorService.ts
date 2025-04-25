@@ -1,5 +1,3 @@
-import * as tf from '@tensorflow/tfjs';
-import * as blazeface from '@tensorflow-models/blazeface';
 
 // This service manages the proctoring functionality
 
@@ -12,7 +10,6 @@ export interface ViolationEvent {
 class ProctorService {
   private videoElement: HTMLVideoElement | null = null;
   private canvasElement: HTMLCanvasElement | null = null;
-  private model: blazeface.BlazeFaceModel | null = null;
   private violationEvents: ViolationEvent[] = [];
   private onViolationCallback: ((event: ViolationEvent) => void) | null = null;
   private active = false;
@@ -21,7 +18,8 @@ class ProctorService {
   private blurHandler: () => void;
   private checkIntervalId: number | null = null;
   private mediaStream: MediaStream | null = null;
-  private detectionIntervalId: number | null = null;
+  private consecutiveNoFace: number = 0;
+  private readonly FACE_DETECTION_VIOLATIONS_LIMIT = 3;
 
   constructor() {
     this.visibilityChangeHandler = this.handleVisibilityChange.bind(this);
@@ -38,60 +36,62 @@ class ProctorService {
     this.violationEvents = [];
     
     try {
-      console.log("Loading TensorFlow model...");
-      await tf.ready();
-      this.model = await blazeface.load();
-      console.log("TensorFlow model loaded successfully");
-
       console.log("Requesting camera access...");
+      
+      // First clean up any existing stream
       this.cleanupExistingStream();
       
+      // Request camera access with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
-          frameRate: { ideal: 30 }
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: "user"
         },
         audio: false
       });
       
       this.mediaStream = stream;
+      console.log("Camera access granted, setting up video element");
       
       if (!this.videoElement) {
         console.error("Video element not found");
         return false;
       }
 
-      // Set up video element with improved properties
+      // Set up video element properties
       this.videoElement.srcObject = stream;
       this.videoElement.muted = true;
       this.videoElement.playsInline = true;
       this.videoElement.autoplay = true;
+      this.videoElement.style.transform = 'scaleX(-1)';
       
-      // Improve video visibility
+      // Setup video element visibility
       this.videoElement.style.display = 'block';
       this.videoElement.style.width = '100%';
       this.videoElement.style.height = 'auto';
-      this.videoElement.style.transform = 'scaleX(-1)';
+      this.videoElement.style.backgroundColor = '#000';
       this.videoElement.style.objectFit = 'cover';
-      this.videoElement.style.backgroundColor = 'transparent';
 
+      // Add debug event listeners
       this.addVideoDebugListeners();
 
+      // Start video playback
       try {
         await this.videoElement.play();
         console.log("Camera video playback started successfully");
-        this.startDetection();
       } catch (playError) {
         console.error("Error starting video playback:", playError);
+        await new Promise(resolve => setTimeout(resolve, 500));
         await this.reinitializeVideo();
       }
 
+      // Add visibility event listeners
       document.addEventListener('visibilitychange', this.visibilityChangeHandler);
       window.addEventListener('focus', this.focusHandler);
       window.addEventListener('blur', this.blurHandler);
       
+      // Start monitoring
       this.startPeriodicMonitoring();
       
       this.active = true;
@@ -103,62 +103,27 @@ class ProctorService {
     }
   }
 
-  private async startDetection() {
-    if (!this.model || !this.videoElement || this.detectionIntervalId) return;
+  private addVideoDebugListeners(): void {
+    if (!this.videoElement) return;
 
-    this.detectionIntervalId = window.setInterval(async () => {
-      if (!this.videoElement || !this.model) return;
+    this.videoElement.addEventListener('loadedmetadata', () => {
+      console.log(`Video dimensions: ${this.videoElement?.videoWidth}x${this.videoElement?.videoHeight}`);
+    });
 
-      try {
-        const predictions = await this.model.estimateFaces(this.videoElement, false);
-        
-        if (predictions.length === 0) {
-          this.recordViolation({
-            type: 'looking_away',
-            timestamp: Date.now(),
-            details: 'No face detected in frame'
-          });
-        } else if (predictions.length > 1) {
-          this.recordViolation({
-            type: 'multiple_people',
-            timestamp: Date.now(),
-            details: `Detected ${predictions.length} faces in frame`
-          });
-        } else {
-          // Single face detected, check for head movement
-          const face = predictions[0];
-          const rotation = this.estimateHeadRotation(face);
-          if (rotation > 30) { // 30 degrees threshold
-            this.recordViolation({
-              type: 'looking_away',
-              timestamp: Date.now(),
-              details: 'Significant head rotation detected'
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Detection error:', error);
-      }
-    }, 1000); // Check every second
-  }
+    this.videoElement.addEventListener('playing', () => {
+      console.log("Video is now playing");
+    });
 
-  private estimateHeadRotation(face: blazeface.NormalizedFace): number {
-    // Simple head rotation estimation based on landmark positions
-    const leftEye = face.landmarks[0];
-    const rightEye = face.landmarks[1];
-    if (leftEye && rightEye) {
-      const dx = rightEye[0] - leftEye[0];
-      const dy = rightEye[1] - leftEye[1];
-      return Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-    }
-    return 0;
+    this.videoElement.addEventListener('canplay', () => {
+      console.log("Video can play");
+    });
+
+    this.videoElement.addEventListener('error', (e) => {
+      console.error("Video error:", e);
+    });
   }
 
   private cleanupExistingStream(): void {
-    if (this.detectionIntervalId) {
-      window.clearInterval(this.detectionIntervalId);
-      this.detectionIntervalId = null;
-    }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => {
         track.stop();
@@ -284,11 +249,6 @@ class ProctorService {
       window.clearInterval(this.checkIntervalId);
       this.checkIntervalId = null;
     }
-
-    if (this.detectionIntervalId) {
-      window.clearInterval(this.detectionIntervalId);
-      this.detectionIntervalId = null;
-    }
     
     this.cleanupExistingStream();
     
@@ -355,26 +315,6 @@ class ProctorService {
   // Check if the proctoring system is active
   isActive(): boolean {
     return this.active;
-  }
-
-  private addVideoDebugListeners(): void {
-    if (!this.videoElement) return;
-
-    this.videoElement.addEventListener('loadedmetadata', () => {
-      console.log(`Video dimensions: ${this.videoElement?.videoWidth}x${this.videoElement?.videoHeight}`);
-    });
-
-    this.videoElement.addEventListener('playing', () => {
-      console.log("Video is now playing");
-    });
-
-    this.videoElement.addEventListener('canplay', () => {
-      console.log("Video can play");
-    });
-
-    this.videoElement.addEventListener('error', (e) => {
-      console.error("Video error:", e);
-    });
   }
 }
 
